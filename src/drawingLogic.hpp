@@ -7,6 +7,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include "settingPanel.hpp"
 
 struct Point {
     double x, y;
@@ -16,8 +17,8 @@ struct Point {
 };
 
 struct Color {
-    double r, g, b;
-    Color(double r = 0.0, double g = 0.0, double b = 0.0) : r(r), g(g), b(b) {}
+    double r, g, b, a;
+    Color(double r = 0.0, double g = 0.0, double b = 0.0, double a = 1.0) : r(r), g(g), b(b), a(a) {}
 };
 
 struct Rect{
@@ -75,6 +76,7 @@ public:
     // Handle detection for resizing
     HandlePosition get_handle_at_point(double x, double y) const;
     void draw_selection_handles(const Cairo::RefPtr<Cairo::Context>& cr) const;
+
 };
 
 class Stroke {
@@ -247,6 +249,10 @@ private:
 
     Color default_rectangle_color = Color(0.0, 0.0, 0.0);
     Color default_circle_color = Color(0.0, 0.0, 0.0);
+    
+    // Current pen settings
+    double current_pen_width = 5.0;  // Default medium size
+    Color current_pen_color = Color(0.0, 0.0, 0.8, 1.0);  // Default blue with full opacity
 public:
     CairoDrawingArea();
     ~CairoDrawingArea();
@@ -256,6 +262,7 @@ public:
     void undo();
     void set_stroke_width(double width);
     void set_stroke_color(const Color& color);
+    void set_stroke_opacity(double opacity);
     void set_rectangle_color(const Color& color);
     void set_drawing_state(std::string state);
     void set_current_cursor();
@@ -264,6 +271,8 @@ public:
 protected:
     // GTK callbacks
     void on_draw(const Cairo::RefPtr<Cairo::Context>& cr, int width, int height);
+
+
     
 private:
     // Input handling

@@ -30,7 +30,8 @@ void Circle::add_circle(double x, double y, double r, Color color){
 }
 
 // Cairo Drawing Area implementation
-CairoDrawingArea::CairoDrawingArea() : is_drawing(false), is_drawing_rectangle(false), is_drawing_circle(false), is_erasing(false), is_selecting(false), is_moving(false), is_moving_selection(false), is_resizing(false), rectangle_start(0, 0), current_mouse_pos(0, 0), circle_start(0, 0), selection_start(0, 0), current_handle(HandlePosition::NONE) {
+CairoDrawingArea::CairoDrawingArea() : is_drawing(false), is_drawing_rectangle(false), is_drawing_circle(false), is_erasing(false), is_selecting(false), is_moving(false), is_moving_selection(false), is_resizing(false), rectangle_start(0, 0), current_mouse_pos(0, 0), circle_start(0, 0), selection_start(0, 0), current_handle(HandlePosition::NONE)
+{
     set_size_request(800, 600);
     
     // Set up drawing function
@@ -41,6 +42,9 @@ CairoDrawingArea::CairoDrawingArea() : is_drawing(false), is_drawing_rectangle(f
     
     setup_input_handling();
 }
+
+// Setting panel function
+
 
 CairoDrawingArea::~CairoDrawingArea() {
 }
@@ -53,7 +57,7 @@ void CairoDrawingArea::setup_input_handling() {
     click_gesture->signal_pressed().connect([this](int n_press, double x, double y){
         if(current_tool == "pen"){ 
             is_drawing = true;
-            current_stroke = Stroke();
+            current_stroke = Stroke(current_pen_width, current_pen_color);
             current_stroke.add_point(x, y);
         }
         else if(current_tool == "rectangle") {
@@ -165,7 +169,7 @@ void CairoDrawingArea::setup_input_handling() {
         if (is_drawing) {
             current_stroke.add_point(x, y);
             completed_strokes.push_back(current_stroke);
-            current_stroke = Stroke(); // Clear current stroke
+            current_stroke = Stroke(current_pen_width, current_pen_color); // Reset with current settings
             if(current_tool == "pen" && is_drawing == true)is_drawing = false;
             queue_draw();
         }
@@ -351,7 +355,7 @@ void CairoDrawingArea::draw_smooth_stroke(const Cairo::RefPtr<Cairo::Context>& c
     if (ultra_smooth.size() < 2) return;
     
     // Set stroke properties with antialiasing
-    cr->set_source_rgb(stroke.color.r, stroke.color.g, stroke.color.b);
+    cr->set_source_rgba(stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a);
     cr->set_line_width(stroke.width);
     cr->set_line_cap(Cairo::Context::LineCap::ROUND);
     cr->set_line_join(Cairo::Context::LineJoin::ROUND);
@@ -461,7 +465,7 @@ double CairoDrawingArea::point_distance(const Point& p1, const Point& p2) {
 // Public interface methods
 void CairoDrawingArea::clear_canvas() {
     completed_strokes.clear();
-    current_stroke = Stroke();
+    current_stroke = Stroke(current_pen_width, current_pen_color);
     is_drawing = false;
     queue_draw();
 }
@@ -474,11 +478,18 @@ void CairoDrawingArea::undo() {
 }
 
 void CairoDrawingArea::set_stroke_width(double width) {
+    current_pen_width = width;
     current_stroke.width = width;
 }
 
 void CairoDrawingArea::set_stroke_color(const Color& color) {
+    current_pen_color = color;
     current_stroke.color = color;
+}
+
+void CairoDrawingArea::set_stroke_opacity(double opacity) {
+    current_pen_color.a = opacity;
+    current_stroke.color.a = opacity;
 }
 
 void CairoDrawingArea::set_rectangle_color(const Color& color) {
@@ -760,7 +771,7 @@ void DrawableObject::draw_selection_handles(const Cairo::RefPtr<Cairo::Context>&
 void StrokeObject::draw(const Cairo::RefPtr<Cairo::Context>& cr) const {
     if (stroke.points.size() < 2) return;
     
-    cr->set_source_rgb(stroke.color.r, stroke.color.g, stroke.color.b);
+    cr->set_source_rgba(stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a);
     cr->set_line_width(stroke.width);
     cr->set_line_cap(Cairo::Context::LineCap::ROUND);
     cr->set_line_join(Cairo::Context::LineJoin::ROUND);

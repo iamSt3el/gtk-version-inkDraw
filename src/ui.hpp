@@ -3,6 +3,8 @@
 #include <gtkmm.h>
 #include <functional>
 #include "canvas.hpp"
+#include "settingPanel.hpp"
+#include "penSettingsPanel.hpp"
 
 
 struct ToolInfo{
@@ -19,6 +21,16 @@ class UI_ToolBar : public Gtk::ApplicationWindow{
         
         // Set callback for tool changes
         void set_tool_change_callback(std::function<void(const std::string&, CairoDrawingArea*)> callback);
+
+         void set_setting_panel();
+         void setup_pen_settings_connections();
+         SettingPanel* settingPanel;
+         
+         // Pen settings panel (overlay)
+         PenSettingsPanel* m_pen_settings_panel;
+
+    protected:
+         void on_setting_clicked();
 
     private:
         // Current tool
@@ -41,8 +53,13 @@ class UI_ToolBar : public Gtk::ApplicationWindow{
         std::string get_current_tool();
         Canvas canvas;
 
+        Gtk::Button* setting;
+
         // UI widgets
         Gtk::Box main_box;
         Gtk::CenterBox toolbar_wrapper;
         Gtk::Box toolbar_container;
+        Gtk::Overlay canvas_overlay;  // Overlay for canvas + floating panels
+
+        Gtk::Button* settingButton;
 };

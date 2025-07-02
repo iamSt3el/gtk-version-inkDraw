@@ -21,6 +21,8 @@ class App : public Gtk::Application{
             // Connect the tool change callback
             window->set_tool_change_callback(on_tool_changed);
             
+            window->set_setting_panel();
+            
             add_window(*window);
             window->show();
 

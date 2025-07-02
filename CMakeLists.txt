@@ -14,6 +14,8 @@ add_executable(main
                src/ui.cpp
                src/canvas.cpp
                src/drawingLogic.cpp
+               src/settingPanel.cpp
+               src/penSettingsPanel.cpp
 )
 
 target_include_directories(main PRIVATE ${GTK4_INCLUDE_DIRS} ${EPOXY_INCLUDE_DIRS})
