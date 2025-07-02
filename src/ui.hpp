@@ -33,6 +33,9 @@ class UI_ToolBar : public Gtk::ApplicationWindow{
          void on_setting_clicked();
 
     private:
+
+         Glib::RefPtr<Gtk::CssProvider> base_css_provider;
+         Glib::RefPtr<Gtk::CssProvider> scale_css_provider;
         // Current tool
         std::string current_tool_name;
         

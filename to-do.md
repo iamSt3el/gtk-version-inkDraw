@@ -4,9 +4,10 @@
 - [x] rectangle function done
 - [x] circle function done
 - [x] selection function done
+- [x] added pen setting panel
 - [ ] selection tool resize is left
-- [ ] add popover popup for settings
+- [X] add popover popup for settings
 - [ ] redesign the arch of the application for saving and parsing the data in form of json
 - [ ] add the function of saving page data and loading it from file
-- [ ] add pen, shape setting panel (will be using popover for this)
+- [ ] add shape setting panel (will be using popover for this)
 - [ ] design and implement the home page with notebooks

@@ -74,8 +74,8 @@ window {
 }
 
 .notebook_page.lined{
-    background-image: linear-gradient(to bottom, transparent 24px, #ddd 24px, #ddd 25px, transparent 25px);
-    background-size: 100% 25px;
+    background-image: linear-gradient(to bottom, transparent calc(24px * var(--grid-scale, 1)), #ddd calc(24px * var(--grid-scale, 1)), #ddd calc(25px * var(--grid-scale, 1)), transparent calc(25px * var(--grid-scale, 1)));
+    background-size: 100% calc(25px * var(--grid-scale, 1));
     background-repeat: repeat;
 }
 
@@ -83,12 +83,12 @@ window {
     background-image: 
         linear-gradient(to right, #ddd 1px, transparent 1px),
         linear-gradient(to bottom, #ddd 1px, transparent 1px);
-    background-size: 20px 20px;
+    background-size: calc(20px * var(--grid-scale, 1)) calc(20px * var(--grid-scale, 1));
 }
 
 .notebook_page.dotted{
     background-image: radial-gradient(circle, #ddd 1px, transparent 1px);
-    background-size: 15px 15px;
+    background-size: calc(15px * var(--grid-scale, 1)) calc(15px * var(--grid-scale, 1));
 }
 
 .notebook_page.graph{
@@ -97,7 +97,11 @@ window {
         linear-gradient(to bottom, #eee 1px, transparent 1px),
         linear-gradient(to right, #ddd 1px, transparent 1px),
         linear-gradient(to bottom, #ddd 1px, transparent 1px);
-    background-size: 10px 10px, 10px 10px, 50px 50px, 50px 50px;
+    background-size: 
+        calc(10px * var(--grid-scale, 1)) calc(10px * var(--grid-scale, 1)), 
+        calc(10px * var(--grid-scale, 1)) calc(10px * var(--grid-scale, 1)), 
+        calc(50px * var(--grid-scale, 1)) calc(50px * var(--grid-scale, 1)), 
+        calc(50px * var(--grid-scale, 1)) calc(50px * var(--grid-scale, 1));
 }
 
 /* Tool-specific colors */
@@ -390,7 +394,8 @@ UI_ToolBar::UI_ToolBar()
         {"eraser", "../assets/eraser.svg", "Eraser", "eraser-tool"},
         {"setting", "../assets/setting.svg", "Setting", "setting"}
     };
-    
+    base_css_provider = Gtk::CssProvider::create();
+    scale_css_provider = Gtk::CssProvider::create();
     // Setup window
     set_title("Excalidraw-style Toolbar Demo (C++)");
     set_default_size(1000, 700);
@@ -451,6 +456,18 @@ void UI_ToolBar::setup_pen_settings_connections() {
     }
 }
 
+void UI_ToolBar::setup_css() {
+    //auto css_provider = Gtk::CssProvider::create();
+    base_css_provider->load_from_data(css_data);
+    
+    auto display = Gdk::Display::get_default();
+    Gtk::StyleContext::add_provider_for_display(
+        display, base_css_provider, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    Gtk::StyleContext::add_provider_for_display(
+            display, scale_css_provider, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION            );
+}
+
 void UI_ToolBar::set_setting_panel(){
     settingPanel = Gtk::make_managed<SettingPanel>();
     if(settingPanel){
@@ -486,7 +503,11 @@ void UI_ToolBar::set_setting_panel(){
             std::cout << "Pattern scale changed to: " << scale << std::endl;
             // This would update CSS variables for pattern scaling
             // Implementation depends on how you want to handle pattern scaling
-        });
+            char css[64];
+
+            snprintf(css, sizeof(css), ".notebook_page { --grid-scale: %.2f;}", scale);
+            scale_css_provider->load_from_data(css);
+            });
     }
 }
 
@@ -496,14 +517,7 @@ void UI_ToolBar::on_setting_clicked(){
     }
 }
 
-void UI_ToolBar::setup_css() {
-    auto css_provider = Gtk::CssProvider::create();
-    css_provider->load_from_data(css_data);
-    
-    auto display = Gdk::Display::get_default();
-    Gtk::StyleContext::add_provider_for_display(
-        display, css_provider, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-}
+
 
 void UI_ToolBar::create_toolbar() {
     toolbar_wrapper.add_css_class("toolbar-wrapper");
