@@ -16,7 +16,80 @@ Circle_Data::Circle_Data(double x, double y, double r, Color color) : x(x), y(y)
 
 // Stroke implementation
 void Stroke::add_point(double x, double y) {
-    points.emplace_back(x, y);
+    raw_points.emplace_back(x, y);
+    
+    // Calculate smooth points in real-time for better UX
+    if (raw_points.size() < 2) {
+        points = raw_points;
+        return;
+    }
+    
+    // Step 1: Light simplification to remove micro-jitter
+    std::vector<Point> simplified;
+    if (raw_points.size() <= 2) {
+        simplified = raw_points;
+    } else {
+        simplified.push_back(raw_points[0]); // Always keep first point
+        
+        for (size_t i = 1; i < raw_points.size() - 1; i++) {
+            const Point& prev = simplified.back();
+            const Point& current = raw_points[i];
+            
+            // Calculate distance from current point to previous point
+            double dx = current.x - prev.x;
+            double dy = current.y - prev.y;
+            double dist = sqrt(dx * dx + dy * dy);
+            
+            // Keep point if it's far enough from the previous point
+            if (dist >= 0.5) {
+                simplified.push_back(current);
+            }
+        }
+        
+        simplified.push_back(raw_points.back()); // Always keep last point
+    }
+    
+    // Step 2: Catmull-Rom interpolation for ultra-smooth curves
+    if (simplified.size() < 2) {
+        points = simplified;
+    } else if (simplified.size() == 2) {
+        points = simplified;
+    } else {
+        points.clear();
+        points.reserve(simplified.size() * 12);
+        
+        // Add first point
+        points.push_back(simplified[0]);
+        
+        // Interpolate between each consecutive pair of points
+        for (size_t i = 0; i < simplified.size() - 1; i++) {
+            // Get the four control points for Catmull-Rom spline
+            Point p0 = (i > 0) ? simplified[i-1] : simplified[i];
+            Point p1 = simplified[i];
+            Point p2 = simplified[i+1];
+            Point p3 = (i+2 < simplified.size()) ? simplified[i+2] : simplified[i+1];
+            
+            // Generate many interpolated points for super smooth curves
+            for (int j = 1; j <= 12; j++) {
+                double t = (double)j / 12;
+                double t2 = t * t;
+                double t3 = t2 * t;
+                
+                // Catmull-Rom spline formula
+                double x = 0.5 * ((2.0 * p1.x) +
+                                 (-p0.x + p2.x) * t +
+                                 (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2 +
+                                 (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
+                
+                double y = 0.5 * ((2.0 * p1.y) +
+                                 (-p0.y + p2.y) * t +
+                                 (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2 +
+                                 (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
+                
+                points.emplace_back(x, y);
+            }
+        }
+    }
 }
 
 // Rectangle implementation
@@ -30,9 +103,12 @@ void Circle::add_circle(double x, double y, double r, Color color){
 }
 
 // Cairo Drawing Area implementation
-CairoDrawingArea::CairoDrawingArea() : is_drawing(false), is_drawing_rectangle(false), is_drawing_circle(false), is_erasing(false), is_selecting(false), is_moving(false), is_moving_selection(false), is_resizing(false), rectangle_start(0, 0), current_mouse_pos(0, 0), circle_start(0, 0), selection_start(0, 0), current_handle(HandlePosition::NONE)
+CairoDrawingArea::CairoDrawingArea() : is_drawing(false), is_drawing_rectangle(false), is_drawing_circle(false), is_erasing(false), is_selecting(false), is_moving(false), is_moving_selection(false), is_resizing(false), rectangle_start(0, 0), current_mouse_pos(0, 0), circle_start(0, 0), selection_start(0, 0), current_handle(HandlePosition::NONE), last_redraw_time(std::chrono::steady_clock::now())
 {
     set_size_request(800, 600);
+    
+    // Initialize background surface for caching completed strokes (like SVG layer)
+    initialize_background_surface(800, 600);
     
     // Set up drawing function
     set_draw_func(sigc::mem_fun(*this, &CairoDrawingArea::on_draw));
@@ -138,7 +214,14 @@ void CairoDrawingArea::setup_input_handling() {
             if (current_stroke.points.empty() || 
                 point_distance(current_stroke.points.back(), Point(x, y)) >= 0.5) {
                 current_stroke.add_point(x, y);
-                queue_draw(); // Trigger redraw
+                
+                // Frame rate limiting: only redraw at 60fps max (16.67ms intervals)
+                auto now = std::chrono::steady_clock::now();
+                auto time_since_last_redraw = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_redraw_time);
+                if (time_since_last_redraw.count() >= 16) { // 60fps = 16.67ms
+                    queue_draw();
+                    last_redraw_time = now;
+                }
             }
         }else if(current_tool == "eraser" && is_erasing){
             // Erase items on contact and add to preview
@@ -168,7 +251,13 @@ void CairoDrawingArea::setup_input_handling() {
     click_gesture->signal_released().connect([this](int n_press, double x, double y){
         if (is_drawing) {
             current_stroke.add_point(x, y);
+            // Complete stroke and render to background surface (like SVG layer)
+            current_stroke.complete_stroke();
+            render_stroke_to_background(current_stroke);
+            
+            // Optional: keep in vector for other features (eraser, selection, etc.)
             completed_strokes.push_back(current_stroke);
+            
             current_stroke = Stroke(current_pen_width, current_pen_color); // Reset with current settings
             if(current_tool == "pen" && is_drawing == true)is_drawing = false;
             queue_draw();
@@ -180,6 +269,9 @@ void CairoDrawingArea::setup_input_handling() {
             
             // Add rectangle to current rectangle object
             current_rectangle.add_rect(rectangle_start.x, rectangle_start.y, width, height, default_rectangle_color);
+            
+            // Render to background surface before adding to vector
+            render_rectangle_to_background(current_rectangle);
             completed_rectangles.push_back(current_rectangle);
             
             // Clear current rectangle
@@ -191,7 +283,9 @@ void CairoDrawingArea::setup_input_handling() {
             double r = sqrt(pow(x - circle_start.x, 2) + pow(y - circle_start.y, 2));
 
             current_circle.add_circle(circle_start.x, circle_start.y, r, default_circle_color);
-
+            
+            // Render to background surface before adding to vector
+            render_circle_to_background(current_circle);
             completed_circles.push_back(current_circle);
 
             current_circle = Circle();
@@ -224,25 +318,23 @@ void CairoDrawingArea::setup_input_handling() {
 }
 
 void CairoDrawingArea::on_draw(const Cairo::RefPtr<Cairo::Context>& cr, int width, int height) {
+    // Ensure background surface matches current size
+    if (!background_surface || background_surface->get_width() != width || background_surface->get_height() != height) {
+        initialize_background_surface(width, height);
+        rebuild_background_surface(); // Re-render all objects to new surface
+    }
+    
     // Clear background
     cr->set_source_rgba(0, 0, 0, 0); // Transparent background
     cr->paint();
     
-    // Draw completed strokes
-    for (const auto& stroke : completed_strokes) {
-        draw_stroke(cr, stroke);
+    // PERFORMANCE FIX: Blit cached background surface (contains all completed objects)
+    if (background_surface) {
+        cr->set_source(background_surface, 0, 0);
+        cr->paint();
     }
     
-    // Draw completed rectangles
-    for (const auto& rectangle : completed_rectangles) {
-        draw_rectangle(cr, rectangle);
-    }
-
-    for(const auto& circle : completed_circles){
-        draw_circle(cr, circle);
-    }
-    
-    // Draw selection highlights for legacy objects
+    // Draw selection highlights on live layer (overlay on top of background)
     draw_selection_highlights(cr);
     
     // Draw selection rectangle if selecting
@@ -257,7 +349,7 @@ void CairoDrawingArea::on_draw(const Cairo::RefPtr<Cairo::Context>& cr, int widt
         }
     }
     
-    // Draw current stroke if drawing
+    // Draw current stroke if drawing - points are already smooth in real-time
     if (is_drawing && !current_stroke.points.empty()) {
         draw_stroke(cr, current_stroke);
     }
@@ -302,6 +394,27 @@ void CairoDrawingArea::draw_stroke(const Cairo::RefPtr<Cairo::Context>& cr, cons
     
     // Use smooth stroke rendering for better quality
     draw_smooth_stroke(cr, stroke);
+}
+
+void CairoDrawingArea::draw_current_stroke_simple(const Cairo::RefPtr<Cairo::Context>& cr, const Stroke& stroke) {
+    if (stroke.points.size() < 2) return;
+    
+    // Set stroke properties with antialiasing
+    cr->set_source_rgba(stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a);
+    cr->set_line_width(stroke.width);
+    cr->set_line_cap(Cairo::Context::LineCap::ROUND);
+    cr->set_line_join(Cairo::Context::LineJoin::ROUND);
+    
+    // Start path at first point
+    cr->move_to(stroke.points[0].x, stroke.points[0].y);
+    
+    // Draw simple lines connecting all points (no smoothing for performance)
+    for (size_t i = 1; i < stroke.points.size(); i++) {
+        cr->line_to(stroke.points[i].x, stroke.points[i].y);
+    }
+    
+    // Stroke the path
+    cr->stroke();
 }
 
 void CairoDrawingArea::draw_rectangle(const Cairo::RefPtr<Cairo::Context>& cr, const Rectangle& rectangle) {
@@ -349,11 +462,7 @@ void CairoDrawingArea::draw_rectangle_preview(const Cairo::RefPtr<Cairo::Context
 void CairoDrawingArea::draw_smooth_stroke(const Cairo::RefPtr<Cairo::Context>& cr, const Stroke& stroke) {
     if (stroke.points.size() < 2) return;
     
-    // Apply ultra-smooth processing for perfect curves
-    std::vector<Point> ultra_smooth = ultra_smooth_stroke(stroke.points);
-    
-    if (ultra_smooth.size() < 2) return;
-    
+    // Points now contain calculated smooth points directly
     // Set stroke properties with antialiasing
     cr->set_source_rgba(stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a);
     cr->set_line_width(stroke.width);
@@ -362,11 +471,11 @@ void CairoDrawingArea::draw_smooth_stroke(const Cairo::RefPtr<Cairo::Context>& c
     // Cairo automatically provides good antialiasing by default
     
     // Start path at first point
-    cr->move_to(ultra_smooth[0].x, ultra_smooth[0].y);
+    cr->move_to(stroke.points[0].x, stroke.points[0].y);
     
     // Draw smooth lines connecting all interpolated points
-    for (size_t i = 1; i < ultra_smooth.size(); i++) {
-        cr->line_to(ultra_smooth[i].x, ultra_smooth[i].y);
+    for (size_t i = 1; i < stroke.points.size(); i++) {
+        cr->line_to(stroke.points[i].x, stroke.points[i].y);
     }
     
     // Stroke the path
@@ -499,13 +608,14 @@ void CairoDrawingArea::set_rectangle_color(const Color& color) {
 void CairoDrawingArea::draw_erasing_preview(const Cairo::RefPtr<Cairo::Context>& cr, const Stroke& stroke) {
     if (stroke.points.size() < 2) return;
     
+    // Points now contain calculated smooth points directly
     // Draw stroke with 50% transparency to show it will be erased
     cr->set_source_rgba(stroke.color.r, stroke.color.g, stroke.color.b, 0.5);
     cr->set_line_width(stroke.width);
     cr->set_line_cap(Cairo::Context::LineCap::ROUND);
     cr->set_line_join(Cairo::Context::LineJoin::ROUND);
     
-    // Draw the stroke path
+    // Draw the smooth stroke path
     cr->move_to(stroke.points[0].x, stroke.points[0].y);
     for (size_t i = 1; i < stroke.points.size(); i++) {
         cr->line_to(stroke.points[i].x, stroke.points[i].y);
@@ -514,7 +624,8 @@ void CairoDrawingArea::draw_erasing_preview(const Cairo::RefPtr<Cairo::Context>&
 }
 
 bool CairoDrawingArea::is_stroke_in_eraser_radius(const Stroke& stroke, double eraser_x, double eraser_y, double radius) {
-    // Check if any point in the stroke is within the eraser radius
+    // Points now contain calculated smooth points directly
+    // Check if any point in the smooth stroke is within the eraser radius
     for (const auto& point : stroke.points) {
         double distance = point_distance(Point(eraser_x, eraser_y), point);
         if (distance <= radius) {
@@ -563,6 +674,8 @@ void CairoDrawingArea::update_eraser_collision(double x, double y) {
                 current_eraser.stroke_to_erase.push_back(*it);
                 // Remove from main vector
                 it = completed_strokes.erase(it);
+                // IMPORTANT: Rebuild background surface after removing stroke
+                rebuild_background_surface();
             } else {
                 ++it;
             }
@@ -595,6 +708,8 @@ void CairoDrawingArea::update_eraser_collision(double x, double y) {
                     // Remove from main vector
                     rect_it = completed_rectangles.erase(rect_it);
                     rectangle_moved = true;
+                    // IMPORTANT: Rebuild background surface after removing rectangle
+                    rebuild_background_surface();
                 }
                 break; // Break inner loop since we processed the whole rectangle
             }
@@ -629,6 +744,8 @@ void CairoDrawingArea::update_eraser_collision(double x, double y) {
                     // Remove from main vector
                     circle_it = completed_circles.erase(circle_it);
                     circle_moved = true;
+                    // IMPORTANT: Rebuild background surface after removing circle
+                    rebuild_background_surface();
                 }
                 break; // Break inner loop since we processed the whole Circle object
             }
@@ -1186,6 +1303,9 @@ void CairoDrawingArea::move_selected_objects(double dx, double dy) {
             }
         }
     }
+    
+    // CRITICAL: Rebuild background surface after moving objects
+    rebuild_background_surface();
 }
 
 void CairoDrawingArea::draw_selection_rectangle(const Cairo::RefPtr<Cairo::Context>& cr, double x1, double y1, double x2, double y2) {
@@ -1261,6 +1381,110 @@ bool CairoDrawingArea::is_point_in_rectangle(const Rect& rect, double x, double 
 bool CairoDrawingArea::is_point_in_circle(const Circle_Data& circle, double x, double y) {
     double distance = point_distance(Point(x, y), Point(circle.x, circle.y));
     return distance <= circle.r;
+}
+
+// Stroke class methods
+void Stroke::complete_stroke() {
+    // Smooth points already calculated in real-time during add_point()
+    // Just clear raw points to free memory
+    raw_points.clear();
+}
+
+// Background surface management (dual-layer architecture like Electron app)
+void CairoDrawingArea::initialize_background_surface(int width, int height) {
+    // Create background surface to cache completed strokes (like SVG layer)
+    background_surface = Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32, width, height);
+    background_context = Cairo::Context::create(background_surface);
+    
+    // Clear to transparent
+    background_context->set_source_rgba(0, 0, 0, 0);
+    background_context->paint();
+    
+    background_dirty = false;
+}
+
+void CairoDrawingArea::render_stroke_to_background(const Stroke& stroke) {
+    if (!background_context || stroke.points.size() < 2) return;
+    
+    // Render completed stroke to background surface (cached layer)
+    background_context->set_source_rgba(stroke.color.r, stroke.color.g, stroke.color.b, stroke.color.a);
+    background_context->set_line_width(stroke.width);
+    background_context->set_line_cap(Cairo::Context::LineCap::ROUND);
+    background_context->set_line_join(Cairo::Context::LineJoin::ROUND);
+    
+    // Draw the smooth stroke path to background
+    background_context->move_to(stroke.points[0].x, stroke.points[0].y);
+    for (size_t i = 1; i < stroke.points.size(); i++) {
+        background_context->line_to(stroke.points[i].x, stroke.points[i].y);
+    }
+    background_context->stroke();
+}
+
+void CairoDrawingArea::render_rectangle_to_background(const Rectangle& rectangle) {
+    if (!background_context) return;
+    
+    for (const auto& rect : rectangle.rects) {
+        background_context->set_source_rgb(rect.color.r, rect.color.g, rect.color.b);
+        background_context->set_line_width(2.0);
+        background_context->rectangle(rect.x, rect.y, rect.width, rect.height);
+        background_context->stroke();
+    }
+}
+
+void CairoDrawingArea::render_circle_to_background(const Circle& circle) {
+    if (!background_context) return;
+    
+    for (const auto& c : circle.circles) {
+        background_context->set_source_rgb(c.color.r, c.color.g, c.color.b);
+        background_context->set_line_width(2.0);
+        background_context->arc(c.x, c.y, c.r, 0, 2 * M_PI);
+        background_context->stroke();
+    }
+}
+
+void CairoDrawingArea::erase_from_background(double x, double y, double radius) {
+    if (!background_context) return;
+    
+    // Erase from background surface using destination-out blend mode
+    background_context->save();
+    background_context->set_operator(Cairo::Context::Operator::DEST_OUT);
+    background_context->arc(x, y, radius, 0, 2 * M_PI);
+    background_context->fill();
+    background_context->restore();
+}
+
+void CairoDrawingArea::rebuild_background_surface() {
+    if (!background_context) return;
+    
+    // Clear background surface
+    background_context->save();
+    background_context->set_operator(Cairo::Context::Operator::CLEAR);
+    background_context->paint();
+    background_context->restore();
+    
+    // Re-render all remaining strokes
+    for (const auto& stroke : completed_strokes) {
+        render_stroke_to_background(stroke);
+    }
+    
+    // Re-render rectangles and circles to background too
+    for (const auto& rectangle : completed_rectangles) {
+        for (const auto& rect : rectangle.rects) {
+            background_context->set_source_rgb(rect.color.r, rect.color.g, rect.color.b);
+            background_context->set_line_width(2.0);
+            background_context->rectangle(rect.x, rect.y, rect.width, rect.height);
+            background_context->stroke();
+        }
+    }
+    
+    for (const auto& circle : completed_circles) {
+        for (const auto& c : circle.circles) {
+            background_context->set_source_rgb(c.color.r, c.color.g, c.color.b);
+            background_context->set_line_width(2.0);
+            background_context->arc(c.x, c.y, c.r, 0, 2 * M_PI);
+            background_context->stroke();
+        }
+    }
 }
 
 // Tool change handler function

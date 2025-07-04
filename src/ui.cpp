@@ -172,7 +172,7 @@ window {
 .size-display button {
     background: transparent;
     border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 3px;
+    border-radius: 5px;
     color: #374151;
 }
 
@@ -185,7 +185,7 @@ window {
 .size-circle {
     background: transparent;
     border: 2px solid rgba(0, 0, 0, 0.2);
-    border-radius: 50%;
+    border-radius: 40px;
     margin: 3px 0;
     min-width: 32px;
     min-height: 32px;
@@ -194,6 +194,10 @@ window {
 .size-circle:hover {
     border-color: rgba(99, 102, 241, 0.6);
     background: rgba(99, 102, 241, 0.1);
+}
+
+.size_circle.selected{
+border: 2px solid rgba(1, 1, 1, 0.2);
 }
 
 .size-small {
@@ -241,6 +245,11 @@ popover {
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
     border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Target specific popover by name */
+popover#settings-popover {
+    background: rgba(255, 255, 255, 1.0) !important;
 }
 
 popover contents {
@@ -472,6 +481,9 @@ void UI_ToolBar::set_setting_panel(){
     settingPanel = Gtk::make_managed<SettingPanel>();
     if(settingPanel){
         settingPanel->set_parent(*settingButton);
+        settingPanel->set_autohide(true);  // Auto-hide when clicking outside
+        settingPanel->set_has_arrow(true);  // Add arrow pointing to button
+        settingPanel->set_cascade_popdown(true);  // Fix for GTK4 bug #4529
         
         // Connect settings panel signals to canvas
         settingPanel->signal_pattern_changed().connect([this](std::string pattern) {
@@ -479,25 +491,6 @@ void UI_ToolBar::set_setting_panel(){
             canvas.set_page_pattern(pattern);
         });
         
-        settingPanel->signal_page_size_changed().connect([this](std::string size) {
-            std::cout << "Applying page size: " << size << std::endl;
-            // Handle different page sizes
-            if (size == "a4") {
-                canvas.set_page_size(800, 1131); // A4 ratio scaled
-            } else if (size == "a5") {
-                canvas.set_page_size(566, 800);  // A5 ratio scaled
-            } else if (size == "letter") {
-                canvas.set_page_size(800, 1035); // Letter ratio scaled
-            } else if (size == "legal") {
-                canvas.set_page_size(800, 1318); // Legal ratio scaled
-            } else if (size == "custom") {
-                // Use custom dimensions from the spinbuttons
-                int width = settingPanel->get_custom_width();
-                int height = settingPanel->get_custom_height();
-                std::cout << "Applying custom size: " << width << "x" << height << std::endl;
-                canvas.set_page_size(width, height);
-            }
-        });
         
         settingPanel->signal_pattern_scale_changed().connect([this](double scale) {
             std::cout << "Pattern scale changed to: " << scale << std::endl;
@@ -513,7 +506,11 @@ void UI_ToolBar::set_setting_panel(){
 
 void UI_ToolBar::on_setting_clicked(){
     if(settingPanel){
-        settingPanel->popup();
+        if(settingPanel->get_visible()) {
+            settingPanel->popdown();  // Close if already open
+        } else {
+            settingPanel->popup();    // Open if closed
+        }
     }
 }
 

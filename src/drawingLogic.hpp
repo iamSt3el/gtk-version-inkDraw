@@ -81,14 +81,18 @@ public:
 
 class Stroke {
 public:
-    std::vector<Point> points;
+    std::vector<Point> points;  // Contains calculated smooth points (updated in real-time)
     Color color;
     double width;
     
     Stroke(double w = 3.0, Color col = Color(0.0, 0.0, 0.8)) 
         : width(w), color(col) {}
     
-    void add_point(double x, double y);
+    void add_point(double x, double y);  // Calculates smooth points in real-time
+    void complete_stroke();  // Clears raw points to save memory
+    
+private:
+    std::vector<Point> raw_points;  // Temporary storage during drawing
 };
 
 // Concrete drawable object implementations
@@ -253,6 +257,14 @@ private:
     // Current pen settings
     double current_pen_width = 5.0;  // Default medium size
     Color current_pen_color = Color(0.0, 0.0, 0.8, 1.0);  // Default blue with full opacity
+    
+    // Frame rate limiting
+    std::chrono::steady_clock::time_point last_redraw_time;
+    
+    // Dual-layer architecture (like Electron app)
+    Cairo::RefPtr<Cairo::ImageSurface> background_surface;  // Cached completed strokes
+    Cairo::RefPtr<Cairo::Context> background_context;
+    bool background_dirty = true;
 public:
     CairoDrawingArea();
     ~CairoDrawingArea();
@@ -261,6 +273,14 @@ public:
     void clear_canvas();
     void undo();
     void set_stroke_width(double width);
+    
+    // Background surface management
+    void initialize_background_surface(int width, int height);
+    void render_stroke_to_background(const Stroke& stroke);
+    void render_rectangle_to_background(const Rectangle& rectangle);
+    void render_circle_to_background(const Circle& circle);
+    void erase_from_background(double x, double y, double radius);
+    void rebuild_background_surface(); // Rebuild after erasing
     void set_stroke_color(const Color& color);
     void set_stroke_opacity(double opacity);
     void set_rectangle_color(const Color& color);
@@ -283,6 +303,7 @@ private:
     // Strokes
     void draw_stroke(const Cairo::RefPtr<Cairo::Context>& cr, const Stroke& stroke);
     void draw_smooth_stroke(const Cairo::RefPtr<Cairo::Context>& cr, const Stroke& stroke);
+    void draw_current_stroke_simple(const Cairo::RefPtr<Cairo::Context>& cr, const Stroke& stroke);
     
     // Rectangle
     void draw_rectangle(const Cairo::RefPtr<Cairo::Context>& cr, const Rectangle& rectangle);
